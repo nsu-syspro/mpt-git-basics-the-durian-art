@@ -1,0 +1,12 @@
+schema: "classroom50/repo-config/v1"
+classroom: "mpt"
+assignment: "git-basics"
+owner:
+  username: "The-Durian-art"
+  id: 179717359
+  accepted_at: "2026-10-09T14:46:22Z"
+source:
+  owner: "nsu-syspro"
+  owner_id: 115493553
+  repo: "mpt-git-basics"
+  branch: "main"
