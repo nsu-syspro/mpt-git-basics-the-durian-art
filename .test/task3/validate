@@ -13,6 +13,29 @@ cd "$ROOT_DIR"
 
 ######################
 
+# Restore the previous commit point afterwards (even on failure)
+ORIG_REF=$(git symbolic-ref --short -q HEAD || git rev-parse HEAD)
+restore_head() {
+  git checkout -q --detach "$ORIG_REF" 2> /dev/null || git checkout -q "$ORIG_REF"
+}
+trap restore_head EXIT
+
+######################
+
+echo "# Check that Classroom50 marker files are present in main"
+
+if ! git cat-file -e origin/main:.classroom50.yaml 2> /dev/null; then
+  echo "Warning: .classroom50.yaml is missing from the main branch tree."
+  echo "         The automatic grading system may not be able to grade this submission."
+fi
+
+if ! git cat-file -e origin/main:.github/workflows/autograde.yaml 2> /dev/null; then
+  echo "Warning: .github/workflows/autograde.yaml is missing from the main branch tree."
+  echo "         The automatic grading system may not be able to grade this submission."
+fi
+
+######################
+
 echo "# Check sorting-rebased branch exists"
 
 git log -n 0 origin/sorting-rebased
@@ -29,9 +52,31 @@ else
   git log -p "$BASE_COMMIT"..origin/sorting-rebased
 fi
 
+echo "# Check that sorting-rebased contains exactly two commits on top of sorting"
+
+REBASED_COMMITS=$(git rev-list --count "$BASE_COMMIT"..origin/sorting-rebased)
+if [[ $REBASED_COMMITS -ne 2 ]]; then
+  echo "Failed: Expected exactly 2 commits after the merge base (rebased 'Use better sorting algorithm' + swapped 'Make sorting more verbose'),"
+  echo "        but found $REBASED_COMMITS. Did you rebase faster-sorting onto sorting~1 and swap the commits?"
+  exit 1
+fi
+
+echo "# Check that committed trees contain no unresolved conflict markers"
+
+for COMMIT in $(git rev-list "$BASE_COMMIT"..origin/sorting-rebased); do
+  if git show "$COMMIT:src/sort.py" 2> /dev/null | grep -q '^<<<<<<<'; then
+    echo "Failed: Commit $COMMIT contains unresolved merge conflict markers in src/sort.py"
+    exit 1
+  fi
+done
+
 echo "# Check for merges of sorting-rebased into main"
 
 FIRST_MERGE_COMMIT=$(git log --format='%H' --ancestry-path origin/main ^origin/sorting-rebased | tail -n 1)
+if [[ -z $FIRST_MERGE_COMMIT ]]; then
+  echo "Failed: No merge of sorting-rebased into main found"
+  exit 1
+fi
 MAIN_LOG=$(git log -p --first-parent -n 1 "$FIRST_MERGE_COMMIT")
 if [[ $MAIN_LOG ]]; then
   echo "$MAIN_LOG"
@@ -63,4 +108,29 @@ comparing 10 and 10
 [4, 6, 10, 10, 20, 30, 40]
 \0
 EOF
+
+# After the correct rebase and commit swap, the two commits of sorting-rebased
+# must produce the sorting without logging first, and the sorting with
+# logging second
+FIRST_COMMIT=$(git rev-parse origin/sorting-rebased~1)
+TIP_COMMIT=$(git rev-parse origin/sorting-rebased)
+
+echo "# Verify that program output at the first commit of sorting-rebased has no logging"
+
+git checkout -q --detach "$FIRST_COMMIT"
+FIRST_OUTPUT=$(python3 src/sort.py 2> /dev/null)
+if [[ $(echo "$FIRST_OUTPUT" | grep -c '^comparing') -ne 0 ]]; then
+  echo "Failed: Program output at $FIRST_COMMIT (first commit of sorting-rebased) contains logging:"
+  echo "        the commits of sorting-rebased must be swapped: first 'Use better sorting algorithm', then 'Make sorting more verbose'"
+  exit 1
+fi
+
+echo "# Verify that program output at the tip of sorting-rebased is correct"
+
+git checkout -q --detach "$TIP_COMMIT"
+diff -U 1000 <(echo "$EXPECTED") <(python3 src/sort.py)
+
+echo "# Verify that program works correctly after the merge into main"
+
+git checkout -q --detach "$FIRST_MERGE_COMMIT"
 diff -U 1000 <(echo "$EXPECTED") <(python3 src/sort.py)

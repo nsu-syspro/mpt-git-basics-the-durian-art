@@ -13,6 +13,20 @@ cd "$ROOT_DIR"
 
 ######################
 
+echo "# Check that Classroom50 marker files are present in main"
+
+if ! git cat-file -e origin/main:.classroom50.yaml 2> /dev/null; then
+  echo "Warning: .classroom50.yaml is missing from the main branch tree."
+  echo "         The automatic grading system may not be able to grade this submission."
+fi
+
+if ! git cat-file -e origin/main:.github/workflows/autograde.yaml 2> /dev/null; then
+  echo "Warning: .github/workflows/autograde.yaml is missing from the main branch tree."
+  echo "         The automatic grading system may not be able to grade this submission."
+fi
+
+######################
+
 echo "# Check sorting branch exists"
 
 git log -n 0 origin/sorting
@@ -30,6 +44,10 @@ fi
 echo "# Check for merges of sorting into main"
 
 FIRST_MERGE_COMMIT=$(git log --format='%H' --ancestry-path origin/main ^origin/sorting | tail -n 1)
+if [[ -z $FIRST_MERGE_COMMIT ]]; then
+  echo "Failed: No merge of sorting into main found"
+  exit 1
+fi
 MAIN_LOG=$(git log -p --first-parent -n 1 "$FIRST_MERGE_COMMIT")
 if [[ $MAIN_LOG ]]; then
   echo "$MAIN_LOG"
@@ -61,4 +79,14 @@ comparing 10 and 10
 [4, 6, 10, 10, 20, 30, 40]
 \0
 EOF
+
+# Run the check at the merge commit itself, not at the current HEAD,
+# and restore the previous commit point afterwards (even on failure)
+ORIG_REF=$(git symbolic-ref --short -q HEAD || git rev-parse HEAD)
+restore_head() {
+  git checkout -q --detach "$ORIG_REF" 2> /dev/null || git checkout -q "$ORIG_REF"
+}
+trap restore_head EXIT
+
+git checkout -q --detach "$FIRST_MERGE_COMMIT"
 diff -U 1000 <(echo "$EXPECTED") <(python3 src/sort.py)
