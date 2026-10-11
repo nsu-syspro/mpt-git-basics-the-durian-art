@@ -1,6 +1,5 @@
 arr = [40, 4, 20, 10, 30, 6, 10]
 
-# selection sort:
 for i in range(len(arr) - 1):
     min = i
     for j in range(i + 1, len(arr)):
